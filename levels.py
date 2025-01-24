@@ -32,19 +32,37 @@ class PowerUp:
         self.radius = 0.5
         self.active = True
         self.rotation = 0
+        self.hover_offset = 0
+        
+        # Set color based on power-up type
+        if type == "speed_boost":
+            self.color = GOLD
+        elif type == "shield":
+            self.color = SKYBLUE
+        elif type == "points":
+            self.color = GREEN
+        elif type == "magnet":
+            self.color = PURPLE
 
     def update(self, delta_time):
         if self.active:
-            self.rotation += 90.0 * delta_time  # Rotate 90 degrees per second
-            self.position.y = self.position.y + math.sin(get_time() * 2) * 0.01  # Float up and down
+            self.rotation += 90.0 * delta_time
+            self.hover_offset = math.sin(get_time() * 4) * 0.3  # Faster and more pronounced hover
 
     def draw(self):
         if self.active:
-            # Draw a rotating cube for power-up
+            # Draw power-up with glow effect
+            glow_size = 1.0 + abs(math.sin(get_time() * 3)) * 0.2
             draw_cube(
-                (self.position.x, self.position.y, self.position.z),
-                0.8, 0.8, 0.8,
-                GOLD
+                (self.position.x, self.position.y + self.hover_offset, self.position.z),
+                0.8 * glow_size, 0.8 * glow_size, 0.8 * glow_size,
+                fade(self.color, 0.5)
+            )
+            # Inner cube
+            draw_cube(
+                (self.position.x, self.position.y + self.hover_offset, self.position.z),
+                0.5, 0.5, 0.5,
+                self.color
             )
 
 class Level:
@@ -55,28 +73,34 @@ class Level:
         self.last_segment_z = 0
         self.segment_length = 20.0
         self.road_width = 10.0
-        self.next_obstacle_z = 0
-        # Generate initial road segments
-        for i in range(30):  # Start with more segments
+        self.next_obstacle_z = -50
+        self.obstacle_start_distance = -50
+        self.difficulty = 1.0  # Starting difficulty
+        self.score_multiplier = 1.0
+        
+        # Generate initial road segments only
+        for i in range(40):
             self.generate_road_segment()
-        # Generate initial obstacles
-        for i in range(10):
-            self.generate_obstacle()
 
     def update(self, delta_time, ball_position):
-        # Update existing obstacles
+        # Update difficulty based on distance
+        self.difficulty = 1.0 + abs(ball_position.z) / 500.0  # Increase difficulty every 500 units
+        self.score_multiplier = 1.0 + abs(ball_position.z) / 1000.0  # Increase score multiplier with distance
+        
+        # Update existing obstacles and power-ups
         for obstacle in self.obstacles:
             obstacle.update(delta_time)
         for power_up in self.power_ups:
             power_up.update(delta_time)
             
-        # Continuously generate road segments ahead
-        while self.last_segment_z > ball_position.z - 500:  # Keep 500 units of road ahead
+        # Generate road segments ahead
+        while self.last_segment_z > ball_position.z - 800:
             self.generate_road_segment()
             
-        # Continuously generate obstacles
-        while self.next_obstacle_z > ball_position.z - 400:  # Keep 400 units of obstacles ahead
-            self.generate_obstacle()
+        # Generate obstacles after start distance
+        if ball_position.z <= self.obstacle_start_distance:
+            while self.next_obstacle_z > ball_position.z - 400:
+                self.generate_obstacle()
             
         # Cleanup old elements
         self.cleanup(ball_position)
@@ -88,11 +112,11 @@ class Level:
     def generate_obstacle(self):
         from random import choice, random, randint, uniform
         
-        # Generate 1-3 obstacles at this position for more challenge
-        num_obstacles = randint(1, 3)
+        # Number of obstacles increases with difficulty
+        max_obstacles = min(3, int(1 + self.difficulty / 2))
+        num_obstacles = randint(1, max_obstacles)
         
         for _ in range(num_obstacles):
-            # Different obstacle patterns with weights
             patterns = [
                 (self.create_slalom_obstacle, 0.3),
                 (self.create_moving_gate, 0.25),
@@ -100,7 +124,6 @@ class Level:
                 (self.create_jumping_obstacle, 0.25)
             ]
             
-            # Choose pattern based on weights
             total_weight = sum(weight for _, weight in patterns)
             r = uniform(0, total_weight)
             current_weight = 0
@@ -111,17 +134,35 @@ class Level:
                     pattern()
                     break
         
-        # Add power-up occasionally
+        # Power-up generation
         if random() < 0.3:  # 30% chance for power-up
-            self.power_ups.append(
-                PowerUp(
-                    Vector3(uniform(-3, 3), 1.0, self.next_obstacle_z),
-                    "speed_boost"
-                )
-            )
+            power_up_types = [
+                ("speed_boost", 0.4),
+                ("shield", 0.3),
+                ("points", 0.2),
+                ("magnet", 0.1)
+            ]
+            
+            # Choose power-up type based on weights
+            total_weight = sum(weight for _, weight in power_up_types)
+            r = uniform(0, total_weight)
+            current_weight = 0
+            
+            for p_type, weight in power_up_types:
+                current_weight += weight
+                if r <= current_weight:
+                    self.power_ups.append(
+                        PowerUp(
+                            Vector3(uniform(-3, 3), 1.0, self.next_obstacle_z),
+                            p_type
+                        )
+                    )
+                    break
         
-        # Update next obstacle position with variable spacing
-        self.next_obstacle_z -= randint(20, 40)  # More frequent obstacles
+        # Update next obstacle position with spacing based on difficulty
+        min_space = max(20, 40 - self.difficulty * 2)  # Decrease minimum space with difficulty
+        max_space = max(30, 60 - self.difficulty * 2)  # Decrease maximum space with difficulty
+        self.next_obstacle_z -= randint(int(min_space), int(max_space))
 
     def create_slalom_obstacle(self):
         x_pos = uniform(2.0, 4.0) * (-1 if len(self.obstacles) % 2 == 0 else 1)
@@ -135,6 +176,7 @@ class Level:
         )
 
     def create_moving_gate(self):
+        speed = min(4.0, 2.0 + self.difficulty * 0.5)  # Speed increases with difficulty
         self.obstacles.append(
             Obstacle(
                 Vector3(0.0, 1.0, self.next_obstacle_z),
@@ -142,7 +184,7 @@ class Level:
                 MAROON,
                 moving=True,
                 move_range=uniform(2.0, 4.0),
-                move_speed=uniform(1.5, 3.0)
+                move_speed=speed
             )
         )
 
@@ -176,13 +218,13 @@ class Level:
         )
 
     def cleanup(self, ball_position):
-        # Keep more segments behind for better visuals
+        # Keep more road segments for smoother visuals
         self.road_segments = [seg for seg in self.road_segments 
-                            if seg > ball_position.z - 300]  # Keep 300 units behind
+                            if seg > ball_position.z - 400]  # Increased kept segments
         
         # Clean up old obstacles
         self.obstacles = [obs for obs in self.obstacles 
-                         if obs.position.z > ball_position.z - 200]  # Keep 200 units behind
+                         if obs.position.z > ball_position.z - 200]
         
         # Clean up old power-ups
         self.power_ups = [pow for pow in self.power_ups 

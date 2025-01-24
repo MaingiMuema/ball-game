@@ -20,21 +20,48 @@ class Color(NamedTuple):
 
 class Ball:
     def __init__(self):
-        self.position = Vector3(0.0, 1.0, 0.0)  # Start at origin
+        self.position = Vector3(0.0, 1.0, 0.0)
         self.velocity = Vector3(0.0, 0.0, 0.0)
         self.radius = 0.5
         self.is_grounded = False
         self.score = 0
+        
+        # Power-up states
         self.has_speed_boost = False
-        self.speed_boost_timer = 0
-        self.forward_speed = 20.0  # Increased base forward speed
-        self.max_side_speed = 15.0  # Maximum horizontal speed
-        self.side_acceleration = 50.0  # Increased for more responsive controls
-        self.side_drag = 8.0  # Increased horizontal drag for better control
+        self.has_shield = False
+        self.has_magnet = False
+        self.power_up_timers = {
+            "speed_boost": 0,
+            "shield": 0,
+            "magnet": 0
+        }
+        
+        # Movement properties
+        self.forward_speed = 20.0
+        self.max_side_speed = 15.0
+        self.side_acceleration = 50.0
+        self.side_drag = 8.0
+        
+        # Visual effects
+        self.trail_color = BLUE
+        self.shield_rotation = 0
 
     def update(self, delta_time):
-        # Constant forward movement (negative Z is forward)
-        self.velocity.z = -self.forward_speed * (1.5 if self.has_speed_boost else 1.0)
+        # Update power-up timers
+        for power_up, timer in self.power_up_timers.items():
+            if timer > 0:
+                self.power_up_timers[power_up] -= delta_time
+                if self.power_up_timers[power_up] <= 0:
+                    if power_up == "speed_boost":
+                        self.has_speed_boost = False
+                    elif power_up == "shield":
+                        self.has_shield = False
+                    elif power_up == "magnet":
+                        self.has_magnet = False
+
+        # Update forward speed based on power-ups
+        current_speed = self.forward_speed * (1.5 if self.has_speed_boost else 1.0)
+        self.velocity.z = -current_speed
         
         # Horizontal movement with smooth acceleration
         target_x_speed = 0
@@ -55,7 +82,7 @@ class Ball:
 
         # Apply gravity
         if not self.is_grounded:
-            self.velocity.y -= 35.0 * delta_time  # Increased gravity for snappier jumps
+            self.velocity.y -= 35.0 * delta_time
 
         # Update position
         self.position.x += self.velocity.x * delta_time
@@ -70,33 +97,63 @@ class Ball:
         else:
             self.is_grounded = False
 
-        # Wall collisions (with bounce effect)
-        if abs(self.position.x) >= 4.5 - self.radius:  # Narrower bounds for the suspended road
+        # Wall collisions
+        if abs(self.position.x) >= 4.5 - self.radius:
             self.position.x = (4.5 - self.radius) if self.position.x > 0 else -(4.5 - self.radius)
-            self.velocity.x *= -0.5  # Reduced bounce for better control
+            self.velocity.x *= -0.5
 
         # Jump control
         if is_key_pressed(KEY_SPACE) and self.is_grounded:
-            self.velocity.y = 12.0  # Adjusted jump force
+            self.velocity.y = 12.0
             self.is_grounded = False
-
-        # Update speed boost timer
+            
+        # Update shield rotation
+        if self.has_shield:
+            self.shield_rotation += 180.0 * delta_time
+            
+        # Update trail color
         if self.has_speed_boost:
-            self.speed_boost_timer -= delta_time
-            if self.speed_boost_timer <= 0:
-                self.has_speed_boost = False
+            self.trail_color = GREEN
+        elif self.has_shield:
+            self.trail_color = SKYBLUE
+        elif self.has_magnet:
+            self.trail_color = PURPLE
+        else:
+            self.trail_color = BLUE
+
+    def apply_power_up(self, power_up_type):
+        if power_up_type == "speed_boost":
+            self.has_speed_boost = True
+            self.power_up_timers["speed_boost"] = 5.0
+        elif power_up_type == "shield":
+            self.has_shield = True
+            self.power_up_timers["shield"] = 10.0
+        elif power_up_type == "points":
+            self.score += 1000
+        elif power_up_type == "magnet":
+            self.has_magnet = True
+            self.power_up_timers["magnet"] = 8.0
 
     def draw(self):
+        # Draw shield effect if active
+        if self.has_shield:
+            shield_scale = 1.2 + math.sin(get_time() * 4) * 0.1
+            shield_color = fade(SKYBLUE, 0.5)
+            draw_sphere(
+                (self.position.x, self.position.y, self.position.z),
+                self.radius * shield_scale,
+                shield_color
+            )
+
         # Trail effect
-        trail_length = 15  # Increased trail length
+        trail_length = 15
         trail_spacing = 0.15
         for i in range(trail_length):
             alpha = 1.0 - (i / trail_length)
-            base_color = BLUE if not self.has_speed_boost else GREEN
             trail_color = Color(
-                int(base_color[0] * alpha),
-                int(base_color[1] * alpha),
-                int(base_color[2] * alpha),
+                int(self.trail_color[0] * alpha),
+                int(self.trail_color[1] * alpha),
+                int(self.trail_color[2] * alpha),
                 int(255 * alpha)
             )
             trail_pos = Vector3(
@@ -110,11 +167,17 @@ class Ball:
                 trail_color
             )
         
-        # Main ball
+        # Main ball with glow effect
+        glow_size = 1.0 + abs(math.sin(get_time() * 3)) * 0.1
         draw_sphere(
             (self.position.x, self.position.y, self.position.z),
-            self.radius,
-            BLUE if not self.has_speed_boost else GREEN
+            self.radius * glow_size,
+            fade(self.trail_color, 0.5)
+        )
+        draw_sphere(
+            (self.position.x, self.position.y, self.position.z),
+            self.radius * 0.8,
+            self.trail_color
         )
 
 def main():
@@ -135,41 +198,63 @@ def main():
         ball = Ball()
         levels = create_levels()
         game_manager = GameManager(levels)
-        # Generate initial road segments and obstacles
-        for i in range(20):  # Generate more initial segments
-            game_manager.current_level_data.generate_road_segment()
-        for i in range(10):  # Generate initial obstacles
-            game_manager.current_level_data.next_obstacle_z -= 30
-            game_manager.current_level_data.generate_obstacle()
 
     # Create initial game objects
     ball = None
     game_manager = None
     reset_game()
 
+    # Game state variables
+    start_message_shown = True
+    game_started = False
+
     while not window_should_close():
         # Update
         delta_time = get_frame_time()
         
-        if game_manager.state == GameState.PLAYING:
+        if not game_started:
+            if is_key_pressed(KEY_SPACE):
+                game_started = True
+                start_message_shown = False
+        
+        if game_started and game_manager.state == GameState.PLAYING:
             # Update game objects
             ball.update(delta_time)
             game_manager.ball_position = ball.position
             game_manager.update(ball, delta_time)
             
+            # Check power-up collisions
+            for power_up in game_manager.current_level_data.power_ups:
+                if power_up.active:
+                    distance = math.sqrt(
+                        (power_up.position.x - ball.position.x) ** 2 +
+                        (power_up.position.y - ball.position.y) ** 2 +
+                        (power_up.position.z - ball.position.z) ** 2
+                    )
+                    collect_radius = 1.0 if not ball.has_magnet else 3.0
+                    if distance < collect_radius:
+                        power_up.active = False
+                        ball.apply_power_up(power_up.type)
+            
             # Update camera to follow ball
             camera.position = Vector3(
-                ball.position.x * 0.3,  # Slight camera follow on x-axis
-                6.0,  # Fixed height
-                ball.position.z + 10.0  # Follow behind the ball
+                ball.position.x * 0.3,
+                6.0 + math.sin(get_time()) * 0.2,
+                ball.position.z + 10.0
             )
             camera.target = Vector3(
-                ball.position.x * 0.3,  # Look ahead where the ball is going
-                1.0,  # Look slightly up
+                ball.position.x * 0.3,
+                1.0,
                 ball.position.z - 5.0
             )
+            
+            # Update score based on distance and multiplier
+            ball.score = int(-ball.position.z * game_manager.current_level_data.score_multiplier)
+            
         elif game_manager.state == GameState.GAME_OVER and is_key_pressed(KEY_R):
             reset_game()
+            game_started = False
+            start_message_shown = True
 
         # Draw
         begin_drawing()
@@ -184,12 +269,32 @@ def main():
         end_mode_3d()
         
         # Draw UI
-        draw_text(f"Distance: {int(-ball.position.z)} m", 20, 20, 20, WHITE)
-        if game_manager.state == GameState.GAME_OVER:
-            draw_text("Game Over! Press R to restart", 
-                     SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2, 20, RED)
-            draw_text(f"High Score: {game_manager.high_score} m", 
-                     SCREEN_WIDTH//2 - 70, SCREEN_HEIGHT//2 + 30, 20, GOLD)
+        if start_message_shown:
+            draw_text("Press SPACE to Start", 
+                     SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2, 20, WHITE)
+            draw_text("Use Arrow Keys to Move, SPACE to Jump", 
+                     SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT//2 + 30, 20, GRAY)
+        else:
+            # Draw score and distance
+            draw_text(f"Distance: {int(-ball.position.z)} m", 20, 20, 20, WHITE)
+            draw_text(f"Score: {ball.score}", 20, 50, 20, GOLD)
+            
+            # Draw active power-ups
+            y_offset = 80
+            if ball.has_speed_boost:
+                draw_text("Speed Boost!", 20, y_offset, 20, GREEN)
+                y_offset += 30
+            if ball.has_shield:
+                draw_text("Shield Active", 20, y_offset, 20, SKYBLUE)
+                y_offset += 30
+            if ball.has_magnet:
+                draw_text("Magnet Active", 20, y_offset, 20, PURPLE)
+            
+            if game_manager.state == GameState.GAME_OVER:
+                draw_text("Game Over! Press R to restart", 
+                         SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2, 20, RED)
+                draw_text(f"Final Score: {ball.score}", 
+                         SCREEN_WIDTH//2 - 70, SCREEN_HEIGHT//2 + 30, 20, GOLD)
         
         end_drawing()
 
