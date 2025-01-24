@@ -130,45 +130,56 @@ def main():
     camera.fovy = 60.0
     camera.projection = CAMERA_PERSPECTIVE
 
-    # Create game objects
-    ball = Ball()
-    levels = create_levels()
-    game_manager = GameManager(levels)
+    def reset_game():
+        nonlocal ball, game_manager
+        ball = Ball()
+        levels = create_levels()
+        game_manager = GameManager(levels)
+        # Generate initial road segments and obstacles
+        for i in range(20):  # Generate more initial segments
+            game_manager.current_level_data.generate_road_segment()
+        for i in range(10):  # Generate initial obstacles
+            game_manager.current_level_data.next_obstacle_z -= 30
+            game_manager.current_level_data.generate_obstacle()
 
-    # Generate initial road segments
-    for i in range(10):
-        game_manager.current_level_data.generate_road_segment()
+    # Create initial game objects
+    ball = None
+    game_manager = None
+    reset_game()
 
     while not window_should_close():
         # Update
         delta_time = get_frame_time()
         
-        # Update game objects
-        ball.update(delta_time)
-        game_manager.ball_position = ball.position  # Update ball position in game manager
-        game_manager.update(ball, delta_time)
-        
-        # Update camera to follow ball
-        camera.position = Vector3(
-            ball.position.x * 0.3,  # Slight camera follow on x-axis
-            6.0,  # Fixed height
-            ball.position.z + 10.0  # Follow behind the ball
-        )
-        camera.target = Vector3(
-            ball.position.x * 0.3,  # Look ahead where the ball is going
-            0.0,
-            ball.position.z - 5.0
-        )
+        if game_manager.state == GameState.PLAYING:
+            # Update game objects
+            ball.update(delta_time)
+            game_manager.ball_position = ball.position
+            game_manager.update(ball, delta_time)
+            
+            # Update camera to follow ball
+            camera.position = Vector3(
+                ball.position.x * 0.3,  # Slight camera follow on x-axis
+                6.0,  # Fixed height
+                ball.position.z + 10.0  # Follow behind the ball
+            )
+            camera.target = Vector3(
+                ball.position.x * 0.3,  # Look ahead where the ball is going
+                1.0,  # Look slightly up
+                ball.position.z - 5.0
+            )
+        elif game_manager.state == GameState.GAME_OVER and is_key_pressed(KEY_R):
+            reset_game()
 
         # Draw
         begin_drawing()
-        clear_background(BLACK)  # Space theme
+        clear_background(BLACK)
         
         begin_mode_3d(camera)
         
         # Draw game elements
-        game_manager.draw_level()  # Draw the road and obstacles first
-        ball.draw()  # Draw the ball last so it's always visible
+        game_manager.draw_level()
+        ball.draw()
         
         end_mode_3d()
         
