@@ -1,5 +1,6 @@
 import pyray as rl
 from dataclasses import dataclass
+from enum import Enum
 from levels import create_levels
 
 # Window settings
@@ -12,72 +13,102 @@ class Vector3:
     y: float
     z: float
 
-class GameState:
-    MENU = 0
+class GameState(Enum):
     PLAYING = 1
-    PAUSED = 2
-    GAME_OVER = 3
-    LEVEL_COMPLETE = 4
+    GAME_OVER = 2
+    LEVEL_COMPLETE = 3
 
 class GameManager:
-    def __init__(self):
-        self.state = GameState.MENU
-        self.levels = create_levels()
+    def __init__(self, levels):
+        self.levels = levels
         self.current_level = 0
-        self.reset_level()
-
-    def reset_level(self):
+        self.state = GameState.PLAYING
         self.current_level_data = self.levels[self.current_level]
-        
+        self.distance_traveled = 0
+        self.high_score = 0
+
     def update(self, ball, delta_time):
         if self.state == GameState.PLAYING:
+            # Update level elements
+            self.current_level_data.update(delta_time)
+            
+            # Update distance traveled
+            self.distance_traveled = ball.position.z
+            
             # Check collisions with obstacles
             for obstacle in self.current_level_data.obstacles:
                 if self.check_collision_with_obstacle(ball, obstacle):
-                    ball.velocity = Vector3(
-                        ball.velocity.x * -0.8,
-                        max(ball.velocity.y, 5.0),  # Bounce up
-                        ball.velocity.z
-                    )
-                    ball.score += 10
+                    self.state = GameState.GAME_OVER
+                    if ball.score > self.high_score:
+                        self.high_score = ball.score
+                    return
 
             # Check collisions with power-ups
             for power_up in self.current_level_data.power_ups:
                 if power_up.active and self.check_collision_with_power_up(ball, power_up):
-                    self.apply_power_up(ball, power_up)
                     power_up.active = False
+                    if power_up.type == "speed_boost":
+                        ball.has_speed_boost = True
+                        ball.speed_boost_timer = 5.0  # 5 seconds of speed boost
+                        ball.score += 10
 
-            # Check if level is complete
-            if ball.score >= self.current_level_data.target_score:
+            # Check if level is complete (reached the end of the track)
+            if ball.position.z >= 100:  # End of track
                 self.state = GameState.LEVEL_COMPLETE
+                if self.current_level < len(self.levels) - 1:
+                    self.current_level += 1
+                    self.current_level_data = self.levels[self.current_level]
+                    ball.position = Vector3(0.0, 1.0, -10.0)  # Reset ball position
+                    ball.velocity = Vector3(0.0, 0.0, 0.0)
+                    self.state = GameState.PLAYING
+
+        elif self.state == GameState.GAME_OVER:
+            if rl.is_key_pressed(rl.KEY_R):
+                self.reset_game(ball)
+
+    def draw_level(self):
+        self.current_level_data.draw()
+
+    def draw_ui(self):
+        # Draw score and distance
+        rl.draw_text(f"Score: {int(self.distance_traveled)}", 10, 10, 20, rl.WHITE)
+        rl.draw_text(f"High Score: {self.high_score}", 10, 40, 20, rl.WHITE)
+        
+        # Draw speed boost timer if active
+        if self.state == GameState.PLAYING:
+            rl.draw_text("Use LEFT/RIGHT to move, SPACE to jump", 
+                     SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT - 30, 20, rl.WHITE)
+
+        # Draw game over screen
+        if self.state == GameState.GAME_OVER:
+            text = "Game Over! Press R to restart"
+            font_size = 40
+            text_width = rl.measure_text(text, font_size)
+            rl.draw_text(text, SCREEN_WIDTH//2 - text_width//2, 
+                     SCREEN_HEIGHT//2 - font_size//2, font_size, rl.RED)
+
+        # Draw level complete screen
+        if self.state == GameState.LEVEL_COMPLETE:
+            text = "Level Complete!"
+            font_size = 40
+            text_width = rl.measure_text(text, font_size)
+            rl.draw_text(text, SCREEN_WIDTH//2 - text_width//2, 
+                     SCREEN_HEIGHT//2 - font_size//2, font_size, rl.GREEN)
 
     def check_collision_with_obstacle(self, ball, obstacle):
-        # Simple AABB collision check
-        ball_min = Vector3(
-            ball.position.x - ball.radius,
-            ball.position.y - ball.radius,
-            ball.position.z - ball.radius
-        )
-        ball_max = Vector3(
-            ball.position.x + ball.radius,
-            ball.position.y + ball.radius,
-            ball.position.z + ball.radius
-        )
+        # Simple AABB-Sphere collision
+        closest_x = max(obstacle.position.x - obstacle.size.x/2, 
+                       min(ball.position.x, obstacle.position.x + obstacle.size.x/2))
+        closest_y = max(obstacle.position.y - obstacle.size.y/2, 
+                       min(ball.position.y, obstacle.position.y + obstacle.size.y/2))
+        closest_z = max(obstacle.position.z - obstacle.size.z/2, 
+                       min(ball.position.z, obstacle.position.z + obstacle.size.z/2))
         
-        obstacle_min = Vector3(
-            obstacle.position.x - obstacle.size.x/2,
-            obstacle.position.y - obstacle.size.y/2,
-            obstacle.position.z - obstacle.size.z/2
-        )
-        obstacle_max = Vector3(
-            obstacle.position.x + obstacle.size.x/2,
-            obstacle.position.y + obstacle.size.y/2,
-            obstacle.position.z + obstacle.size.z/2
-        )
+        distance = ((closest_x - ball.position.x) ** 2 + 
+                   (closest_y - ball.position.y) ** 2 + 
+                   (closest_z - ball.position.z) ** 2) ** 0.5
         
-        return (ball_min.x <= obstacle_max.x and ball_max.x >= obstacle_min.x and
-                ball_min.y <= obstacle_max.y and ball_max.y >= obstacle_min.y and
-                ball_min.z <= obstacle_max.z and ball_max.z >= obstacle_min.z)
+        return distance < ball.radius
 
     def check_collision_with_power_up(self, ball, power_up):
         distance = ((ball.position.x - power_up.position.x) ** 2 +
@@ -85,45 +116,15 @@ class GameManager:
                    (ball.position.z - power_up.position.z) ** 2) ** 0.5
         return distance < (ball.radius + power_up.radius)
 
-    def apply_power_up(self, ball, power_up):
-        if power_up.type == "speed_boost":
-            ball.has_speed_boost = True
-            ball.speed_boost_timer = 5.0  # 5 seconds duration
-        elif power_up.type == "invincibility":
-            # Implement invincibility logic here
-            pass
-
-    def draw_level(self):
-        self.current_level_data.draw()
-
-    def draw_ui(self):
-        if self.state == GameState.MENU:
-            text = "Press ENTER to Start"
-            text_width = rl.measure_text(text, 20)
-            rl.draw_text(
-                text,
-                SCREEN_WIDTH//2 - text_width//2,
-                SCREEN_HEIGHT//2,
-                20,
-                rl.BLACK
-            )
-        elif self.state == GameState.LEVEL_COMPLETE:
-            text = "Level Complete! Press ENTER for next level"
-            text_width = rl.measure_text(text, 20)
-            rl.draw_text(
-                text,
-                SCREEN_WIDTH//2 - text_width//2,
-                SCREEN_HEIGHT//2,
-                20,
-                rl.BLACK
-            )
-        elif self.state == GameState.GAME_OVER:
-            text = "Game Over! Press R to Restart"
-            text_width = rl.measure_text(text, 20)
-            rl.draw_text(
-                text,
-                SCREEN_WIDTH//2 - text_width//2,
-                SCREEN_HEIGHT//2,
-                20,
-                rl.BLACK
-            )
+    def reset_game(self, ball):
+        self.current_level = 0
+        self.current_level_data = self.levels[self.current_level]
+        self.state = GameState.PLAYING
+        ball.position = Vector3(0.0, 1.0, -10.0)
+        ball.velocity = Vector3(0.0, 0.0, 0.0)
+        ball.score = 0
+        ball.has_speed_boost = False
+        ball.speed_boost_timer = 0
+        # Reset power-ups
+        for power_up in self.current_level_data.power_ups:
+            power_up.active = True
