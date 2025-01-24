@@ -4,13 +4,6 @@ from typing import NamedTuple
 from game_manager import GameManager, GameState
 import math
 
-# Custom Vector3 class since raylib Python doesn't export Vector3
-@dataclass
-class Vector3:
-    x: float
-    y: float
-    z: float
-
 class Color(NamedTuple):
     r: int
     g: int
@@ -36,28 +29,48 @@ class Ball:
 
     def update(self, delta_time):
         # Apply gravity
-        if not self.is_grounded:
-            self.velocity = Vector3(
-                self.velocity.x,
-                self.velocity.y - GRAVITY * delta_time,
-                self.velocity.z
-            )
+        self.velocity.y -= GRAVITY * delta_time
 
-        # Update position
-        move_speed = MOVE_SPEED * 2 if self.has_speed_boost else MOVE_SPEED
-        
+        # Update position based on velocity
+        self.position.x += self.velocity.x * delta_time
+        self.position.y += self.velocity.y * delta_time
+        self.position.z += self.velocity.z * delta_time
+
+        # Ground collision
+        if self.position.y - self.radius <= 0:
+            self.position.y = self.radius
+            self.velocity.y = -self.velocity.y * 0.8  # Bounce with damping
+            self.is_grounded = True
+        else:
+            self.is_grounded = False
+
+        # Wall collisions
+        if abs(self.position.x) >= 10 - self.radius:
+            self.position.x = (10 - self.radius) if self.position.x > 0 else -(10 - self.radius)
+            self.velocity.x *= -0.8
+
+        if abs(self.position.z) >= 10 - self.radius:
+            self.position.z = (10 - self.radius) if self.position.z > 0 else -(10 - self.radius)
+            self.velocity.z *= -0.8
+
+        # Update speed boost timer
+        if self.has_speed_boost:
+            self.speed_boost_timer -= delta_time
+            if self.speed_boost_timer <= 0:
+                self.has_speed_boost = False
+
         # Handle keyboard input
         if is_key_down(KEY_LEFT):
-            self.velocity = Vector3(-move_speed, self.velocity.y, self.velocity.z)
+            self.velocity = Vector3(-MOVE_SPEED, self.velocity.y, self.velocity.z)
         elif is_key_down(KEY_RIGHT):
-            self.velocity = Vector3(move_speed, self.velocity.y, self.velocity.z)
+            self.velocity = Vector3(MOVE_SPEED, self.velocity.y, self.velocity.z)
         else:
             self.velocity = Vector3(0, self.velocity.y, self.velocity.z)
 
         if is_key_down(KEY_UP):
-            self.velocity = Vector3(self.velocity.x, self.velocity.y, -move_speed)
+            self.velocity = Vector3(self.velocity.x, self.velocity.y, -MOVE_SPEED)
         elif is_key_down(KEY_DOWN):
-            self.velocity = Vector3(self.velocity.x, self.velocity.y, move_speed)
+            self.velocity = Vector3(self.velocity.x, self.velocity.y, MOVE_SPEED)
         else:
             self.velocity = Vector3(self.velocity.x, self.velocity.y, 0)
 
@@ -66,40 +79,8 @@ class Ball:
             self.velocity = Vector3(self.velocity.x, JUMP_FORCE, self.velocity.z)
             self.is_grounded = False
 
-        # Update position based on velocity
-        self.position = Vector3(
-            self.position.x + self.velocity.x * delta_time,
-            self.position.y + self.velocity.y * delta_time,
-            self.position.z + self.velocity.z * delta_time
-        )
-
-        # Basic ground collision
-        if self.position.y - self.radius <= 0:
-            self.position = Vector3(self.position.x, self.radius, self.position.z)
-            self.velocity = Vector3(
-                self.velocity.x,
-                abs(self.velocity.y) * 0.8,  # Bounce with energy loss
-                self.velocity.z
-            )
-            self.is_grounded = True
-        else:
-            self.is_grounded = False
-
-        # Update speed boost timer
-        if self.has_speed_boost:
-            self.speed_boost_timer -= delta_time
-            if self.speed_boost_timer <= 0:
-                self.has_speed_boost = False
-
     def draw(self):
-        color = Color(255, 100, 100, 255)
-        if self.has_speed_boost:
-            color = Color(100, 255, 100, 255)
-        draw_sphere_v(
-            Vector3(self.position.x, self.position.y, self.position.z),
-            self.radius,
-            Color(color.r, color.g, color.b, color.a)
-        )
+        draw_sphere(self.position, self.radius, BLUE if not self.has_speed_boost else GREEN)
 
 def main():
     # Initialize window
