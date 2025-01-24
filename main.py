@@ -5,18 +5,18 @@ from game_manager import GameManager, GameState
 from levels import create_levels
 import math
 
-class Color(NamedTuple):
-    r: int
-    g: int
-    b: int
-    a: int
-
 # Initialize window and game settings
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 GRAVITY = 9.81
 JUMP_FORCE = 15.0
 MOVE_SPEED = 10.0
+
+class Color(NamedTuple):
+    r: int
+    g: int
+    b: int
+    a: int
 
 class Ball:
     def __init__(self):
@@ -91,10 +91,11 @@ class Ball:
         trail_spacing = 0.2
         for i in range(trail_length):
             alpha = 1.0 - (i / trail_length)
+            base_color = BLUE if not self.has_speed_boost else GREEN
             trail_color = Color(
-                int(BLUE.r * alpha) if not self.has_speed_boost else int(GREEN.r * alpha),
-                int(BLUE.g * alpha) if not self.has_speed_boost else int(GREEN.g * alpha),
-                int(BLUE.b * alpha) if not self.has_speed_boost else int(GREEN.b * alpha),
+                int(base_color[0] * alpha),
+                int(base_color[1] * alpha),
+                int(base_color[2] * alpha),
                 int(255 * alpha)
             )
             trail_pos = Vector3(
