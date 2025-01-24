@@ -1,11 +1,5 @@
-from raylib import *
+from pyray import *
 from dataclasses import dataclass
-
-@dataclass
-class Vector3:
-    x: float
-    y: float
-    z: float
 
 class Obstacle:
     def __init__(self, position, size, color):
@@ -14,11 +8,7 @@ class Obstacle:
         self.color = color
 
     def draw(self):
-        draw_cube_v(
-            Vector3(self.position.x, self.position.y, self.position.z),
-            Vector3(self.size.x, self.size.y, self.size.z),
-            self.color
-        )
+        draw_cube(self.position, self.size.x, self.size.y, self.size.z, self.color)
 
 class PowerUp:
     def __init__(self, position, type_):
@@ -30,11 +20,7 @@ class PowerUp:
     def draw(self):
         if self.active:
             color = GREEN if self.type == "speed_boost" else YELLOW
-            draw_sphere_v(
-                Vector3(self.position.x, self.position.y, self.position.z),
-                self.radius,
-                color
-            )
+            draw_sphere(self.position, self.radius, color)
 
 class Level:
     def __init__(self, obstacles, power_ups, target_score):
