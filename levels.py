@@ -50,44 +50,138 @@ class Level:
     def __init__(self):
         self.obstacles = []
         self.power_ups = []
+        self.road_segments = []  # Store road segment positions
+        self.last_segment_z = 0  # Track the last generated segment position
+        self.segment_length = 20.0
+        self.road_width = 10.0
+        self.next_obstacle_z = 0  # Track next obstacle position
 
-    def update(self, delta_time):
+    def update(self, delta_time, ball_position):
+        # Update obstacles and power-ups
         for obstacle in self.obstacles:
             obstacle.update(delta_time)
         for power_up in self.power_ups:
             power_up.update(delta_time)
+            
+        # Generate new road segments ahead
+        while self.last_segment_z > ball_position.z - 400:  # Keep 400 units ahead
+            self.generate_road_segment()
+            
+        # Generate obstacles
+        while self.next_obstacle_z > ball_position.z - 300:  # Keep obstacles 300 units ahead
+            self.generate_obstacle()
+            
+        # Remove old segments and obstacles
+        self.cleanup(ball_position)
 
-    def draw(self):
-        # Draw suspended road segments
-        road_width = 10.0
-        road_segment_length = 20.0
-        num_segments = 10
+    def generate_road_segment(self):
+        self.last_segment_z -= self.segment_length
+        self.road_segments.append(self.last_segment_z)
+
+    def generate_obstacle(self):
+        from random import choice, random, randint
         
-        for i in range(num_segments):
-            z_pos = -i * road_segment_length
+        # Different obstacle patterns
+        patterns = [
+            self.create_slalom_obstacle,
+            self.create_moving_gate,
+            self.create_narrow_passage,
+            self.create_jumping_obstacle
+        ]
+        
+        # Choose and create a random pattern
+        chosen_pattern = choice(patterns)
+        chosen_pattern()
+        
+        # Update next obstacle position
+        self.next_obstacle_z -= randint(30, 50)  # Variable spacing between obstacles
+
+    def create_slalom_obstacle(self):
+        x_pos = 3.0 if len(self.obstacles) % 2 == 0 else -3.0
+        self.obstacles.append(
+            Obstacle(
+                Vector3(x_pos, 1.0, self.next_obstacle_z),
+                Vector3(2.0, 2.0, 2.0),
+                DARKBROWN
+            )
+        )
+
+    def create_moving_gate(self):
+        self.obstacles.append(
+            Obstacle(
+                Vector3(0.0, 1.0, self.next_obstacle_z),
+                Vector3(6.0, 2.0, 2.0),
+                MAROON,
+                moving=True,
+                move_range=3.0,
+                move_speed=2.0
+            )
+        )
+
+    def create_narrow_passage(self):
+        self.obstacles.append(
+            Obstacle(
+                Vector3(-4.0, 1.0, self.next_obstacle_z),
+                Vector3(1.5, 2.0, 4.0),
+                DARKBLUE
+            )
+        )
+        self.obstacles.append(
+            Obstacle(
+                Vector3(4.0, 1.0, self.next_obstacle_z),
+                Vector3(1.5, 2.0, 4.0),
+                DARKBLUE
+            )
+        )
+
+    def create_jumping_obstacle(self):
+        self.obstacles.append(
+            Obstacle(
+                Vector3(0.0, 0.5, self.next_obstacle_z),
+                Vector3(4.0, 1.0, 2.0),
+                PURPLE
+            )
+        )
+
+    def cleanup(self, ball_position):
+        # Keep only segments within range
+        self.road_segments = [seg for seg in self.road_segments 
+                            if seg > ball_position.z - 200]  # Keep 200 units behind
+        
+        # Remove old obstacles
+        self.obstacles = [obs for obs in self.obstacles 
+                         if obs.position.z > ball_position.z - 100]  # Keep 100 units behind
+        
+        # Remove old power-ups
+        self.power_ups = [pow for pow in self.power_ups 
+                         if pow.active and pow.position.z > ball_position.z - 100]
+
+    def draw(self, ball_position):
+        # Draw road segments
+        for segment_z in self.road_segments:
             # Draw road surface
             draw_cube(
-                (0.0, -0.5, z_pos - road_segment_length/2),
-                road_width, 0.5, road_segment_length,
+                (0.0, -0.5, segment_z - self.segment_length/2),
+                self.road_width, 0.5, self.segment_length,
                 DARKGRAY
             )
             # Draw side barriers
             draw_cube(
-                (road_width/2 + 0.5, 0.5, z_pos - road_segment_length/2),
-                1.0, 1.0, road_segment_length,
+                (self.road_width/2 + 0.5, 0.5, segment_z - self.segment_length/2),
+                1.0, 1.0, self.segment_length,
                 BLUE
             )
             draw_cube(
-                (-road_width/2 - 0.5, 0.5, z_pos - road_segment_length/2),
-                1.0, 1.0, road_segment_length,
+                (-self.road_width/2 - 0.5, 0.5, segment_z - self.segment_length/2),
+                1.0, 1.0, self.segment_length,
                 BLUE
             )
         
         # Draw space background (stars)
-        for i in range(100):
+        for i in range(200):  # Increased number of stars
             star_x = math.sin(i * 1.1) * 50
             star_y = math.cos(i * 0.9) * 30
-            star_z = ((get_time() * 20 + i * 10) % 200) - 200
+            star_z = ((get_time() * 20 + i * 10) % 400) - 400 + ball_position.z
             draw_cube(
                 (star_x, star_y, star_z),
                 0.2, 0.2, 0.2,

@@ -124,7 +124,7 @@ def main():
 
     # Initialize camera
     camera = Camera3D()
-    camera.position = Vector3(0.0, 6.0, 10.0)  # Adjusted camera position
+    camera.position = Vector3(0.0, 6.0, 10.0)
     camera.target = Vector3(0.0, 0.0, 0.0)
     camera.up = Vector3(0.0, 1.0, 0.0)
     camera.fovy = 60.0
@@ -135,12 +135,17 @@ def main():
     levels = create_levels()
     game_manager = GameManager(levels)
 
+    # Generate initial road segments
+    for i in range(10):
+        game_manager.current_level_data.generate_road_segment()
+
     while not window_should_close():
         # Update
         delta_time = get_frame_time()
         
         # Update game objects
         ball.update(delta_time)
+        game_manager.ball_position = ball.position  # Update ball position in game manager
         game_manager.update(ball, delta_time)
         
         # Update camera to follow ball
@@ -157,22 +162,22 @@ def main():
 
         # Draw
         begin_drawing()
-        clear_background(BLACK)  # Changed to black for space theme
+        clear_background(BLACK)  # Space theme
         
         begin_mode_3d(camera)
         
         # Draw game elements
-        ball.draw()
-        game_manager.current_level_data.draw()
+        game_manager.draw_level()  # Draw the road and obstacles first
+        ball.draw()  # Draw the ball last so it's always visible
         
         end_mode_3d()
         
         # Draw UI
-        draw_text(f"Score: {int(-ball.position.z)}", 20, 20, 20, WHITE)
+        draw_text(f"Distance: {int(-ball.position.z)} m", 20, 20, 20, WHITE)
         if game_manager.state == GameState.GAME_OVER:
             draw_text("Game Over! Press R to restart", 
                      SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2, 20, RED)
-            draw_text(f"High Score: {game_manager.high_score}", 
+            draw_text(f"High Score: {game_manager.high_score} m", 
                      SCREEN_WIDTH//2 - 70, SCREEN_HEIGHT//2 + 30, 20, GOLD)
         
         end_drawing()

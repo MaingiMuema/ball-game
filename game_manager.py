@@ -32,11 +32,12 @@ class GameManager:
         self.chunk_size = 100  # Length of each repeating chunk
         self.active_chunks = []  # List of active level chunks
         self.last_chunk_z = 0  # Z position of the last generated chunk
+        self.ball_position = Vector3(0.0, 1.0, 0.0)
 
     def update(self, ball, delta_time):
         if self.state == GameState.PLAYING:
             # Update level elements
-            self.current_level_data.update(delta_time)
+            self.current_level_data.update(delta_time, ball.position)
             
             # Update distance traveled (negative because we move in negative Z)
             self.distance_traveled = -ball.position.z
@@ -59,7 +60,7 @@ class GameManager:
                     power_up.active = False
                     if power_up.type == "speed_boost":
                         ball.has_speed_boost = True
-                        ball.speed_boost_timer = 5.0  # 5 seconds of speed boost
+                        ball.speed_boost_timer = 5.0
                         ball.score += 10
 
         elif self.state == GameState.GAME_OVER:
@@ -166,7 +167,7 @@ class GameManager:
         ]
 
     def draw_level(self):
-        self.current_level_data.draw()
+        self.current_level_data.draw(self.ball_position)
 
     def draw_ui(self):
         # Draw score and distance
