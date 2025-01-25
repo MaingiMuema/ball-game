@@ -3,7 +3,7 @@ from random import choice, random, randint, uniform
 import math
 
 class Obstacle:
-    def __init__(self, position, size, color, moving=False, move_range=0.0, move_speed=0.0):
+    def __init__(self, position, size, color, moving=False, move_range=0.0, move_speed=0.0, spinning=False, spin_radius=0.0, spin_speed=0.0):
         self.position = position
         self.size = size
         self.color = color
@@ -12,11 +12,18 @@ class Obstacle:
         self.move_speed = move_speed
         self.initial_x = position.x
         self.time = 0
+        self.spinning = spinning
+        self.spin_radius = spin_radius
+        self.spin_speed = spin_speed
+        self.spin_angle = 0
 
     def update(self, delta_time):
         if self.moving:
             self.time += delta_time
             self.position.x = self.initial_x + math.sin(self.time * self.move_speed) * self.move_range
+        if self.spinning:
+            self.spin_angle += self.spin_speed * delta_time
+            self.position.x = self.spin_radius * math.cos(self.spin_angle)
 
     def draw(self):
         draw_cube(
@@ -65,63 +72,152 @@ class PowerUp:
                 self.color
             )
 
+class Particle:
+    def __init__(self, position, velocity, color, life_time, size=0.2):
+        self.position = position
+        self.velocity = velocity
+        self.color = color
+        self.life_time = life_time
+        self.max_life = life_time
+        self.size = size
+
+    def update(self, delta_time):
+        self.position.x += self.velocity.x * delta_time
+        self.position.y += self.velocity.y * delta_time
+        self.position.z += self.velocity.z * delta_time
+        self.life_time -= delta_time
+        
+        # Add gravity effect
+        self.velocity.y -= 9.8 * delta_time
+
+    def draw(self):
+        alpha = self.life_time / self.max_life
+        color = Color(
+            self.color[0],
+            self.color[1],
+            self.color[2],
+            int(255 * alpha)
+        )
+        draw_sphere(
+            (self.position.x, self.position.y, self.position.z),
+            self.size * alpha,
+            color
+        )
+
 class Level:
     def __init__(self):
         self.obstacles = []
         self.power_ups = []
         self.road_segments = []
+        self.particles = []
         self.last_segment_z = 0
         self.segment_length = 20.0
         self.road_width = 10.0
         self.next_obstacle_z = -50
         self.obstacle_start_distance = -50
-        self.difficulty = 1.0  # Starting difficulty
+        self.difficulty = 1.0
         self.score_multiplier = 1.0
+        self.combo_multiplier = 1.0
+        self.combo_timer = 0
+        self.combo_count = 0
         
-        # Generate initial road segments only
+        # Generate initial road segments
         for i in range(40):
             self.generate_road_segment()
 
     def update(self, delta_time, ball_position):
-        # Update difficulty based on distance
-        self.difficulty = 1.0 + abs(ball_position.z) / 500.0  # Increase difficulty every 500 units
-        self.score_multiplier = 1.0 + abs(ball_position.z) / 1000.0  # Increase score multiplier with distance
+        # Update difficulty and multipliers
+        self.difficulty = 1.0 + abs(ball_position.z) / 500.0
+        self.score_multiplier = 1.0 + abs(ball_position.z) / 1000.0
         
-        # Update existing obstacles and power-ups
+        # Update combo system
+        if self.combo_timer > 0:
+            self.combo_timer -= delta_time
+            if self.combo_timer <= 0:
+                self.reset_combo()
+        
+        # Update particles
+        self.particles = [p for p in self.particles if p.life_time > 0]
+        for particle in self.particles:
+            particle.update(delta_time)
+        
+        # Update game objects
         for obstacle in self.obstacles:
             obstacle.update(delta_time)
         for power_up in self.power_ups:
             power_up.update(delta_time)
             
-        # Generate road segments ahead
+        # Generate road and obstacles
         while self.last_segment_z > ball_position.z - 800:
             self.generate_road_segment()
             
-        # Generate obstacles after start distance
         if ball_position.z <= self.obstacle_start_distance:
             while self.next_obstacle_z > ball_position.z - 400:
                 self.generate_obstacle()
             
-        # Cleanup old elements
+        # Cleanup
         self.cleanup(ball_position)
 
-    def generate_road_segment(self):
-        self.last_segment_z -= self.segment_length
-        self.road_segments.append(self.last_segment_z)
+    def add_particle_effect(self, position, type="collect"):
+        if type == "collect":
+            for _ in range(20):
+                angle = uniform(0, math.pi * 2)
+                speed = uniform(5.0, 10.0)
+                self.particles.append(
+                    Particle(
+                        Vector3(position.x, position.y, position.z),
+                        Vector3(
+                            math.cos(angle) * speed,
+                            uniform(5.0, 10.0),
+                            math.sin(angle) * speed
+                        ),
+                        GOLD,
+                        0.5
+                    )
+                )
+        elif type == "combo":
+            for _ in range(30):
+                angle = uniform(0, math.pi * 2)
+                speed = uniform(8.0, 15.0)
+                self.particles.append(
+                    Particle(
+                        Vector3(position.x, position.y, position.z),
+                        Vector3(
+                            math.cos(angle) * speed,
+                            uniform(8.0, 15.0),
+                            math.sin(angle) * speed
+                        ),
+                        PURPLE,
+                        0.8
+                    )
+                )
+
+    def add_combo(self):
+        self.combo_count += 1
+        self.combo_timer = 3.0  # Reset combo timer
+        self.combo_multiplier = min(4.0, 1.0 + self.combo_count * 0.5)  # Max 4x multiplier
+        if self.combo_count >= 3:  # Particle effect for combos of 3 or more
+            self.add_particle_effect(ball.position, "combo")
+
+    def reset_combo(self):
+        self.combo_count = 0
+        self.combo_multiplier = 1.0
+        self.combo_timer = 0
 
     def generate_obstacle(self):
         from random import choice, random, randint, uniform
         
-        # Number of obstacles increases with difficulty
+        # Number of obstacles based on difficulty
         max_obstacles = min(3, int(1 + self.difficulty / 2))
         num_obstacles = randint(1, max_obstacles)
         
         for _ in range(num_obstacles):
             patterns = [
-                (self.create_slalom_obstacle, 0.3),
+                (self.create_slalom_obstacle, 0.25),
                 (self.create_moving_gate, 0.25),
-                (self.create_narrow_passage, 0.2),
-                (self.create_jumping_obstacle, 0.25)
+                (self.create_narrow_passage, 0.15),
+                (self.create_jumping_obstacle, 0.2),
+                (self.create_spinning_obstacle, 0.15)  # New obstacle type
             ]
             
             total_weight = sum(weight for _, weight in patterns)
@@ -133,17 +229,16 @@ class Level:
                 if r <= current_weight:
                     pattern()
                     break
-        
+
         # Power-up generation
-        if random() < 0.3:  # 30% chance for power-up
+        if random() < 0.3:
             power_up_types = [
-                ("speed_boost", 0.4),
-                ("shield", 0.3),
-                ("points", 0.2),
-                ("magnet", 0.1)
+                ("speed_boost", 0.3),
+                ("shield", 0.25),
+                ("points", 0.25),
+                ("magnet", 0.2)
             ]
             
-            # Choose power-up type based on weights
             total_weight = sum(weight for _, weight in power_up_types)
             r = uniform(0, total_weight)
             current_weight = 0
@@ -159,9 +254,9 @@ class Level:
                     )
                     break
         
-        # Update next obstacle position with spacing based on difficulty
-        min_space = max(20, 40 - self.difficulty * 2)  # Decrease minimum space with difficulty
-        max_space = max(30, 60 - self.difficulty * 2)  # Decrease maximum space with difficulty
+        # Update next obstacle position
+        min_space = max(20, 40 - self.difficulty * 2)
+        max_space = max(30, 60 - self.difficulty * 2)
         self.next_obstacle_z -= randint(int(min_space), int(max_space))
 
     def create_slalom_obstacle(self):
@@ -217,6 +312,20 @@ class Level:
             )
         )
 
+    def create_spinning_obstacle(self):
+        # Create a spinning obstacle that rotates around the center
+        radius = uniform(2.0, 3.5)
+        self.obstacles.append(
+            Obstacle(
+                Vector3(0.0, 1.0, self.next_obstacle_z),
+                Vector3(4.0, 0.5, 0.5),
+                RED,
+                spinning=True,
+                spin_radius=radius,
+                spin_speed=uniform(2.0, 3.0 + self.difficulty)
+            )
+        )
+
     def cleanup(self, ball_position):
         # Keep more road segments for smoother visuals
         self.road_segments = [seg for seg in self.road_segments 
@@ -230,67 +339,48 @@ class Level:
         self.power_ups = [pow for pow in self.power_ups 
                          if pow.active and pow.position.z > ball_position.z - 200]
 
+    def generate_road_segment(self):
+        self.last_segment_z -= self.segment_length
+        self.road_segments.append(self.last_segment_z)
+
     def draw(self, ball_position):
         # Draw road segments
-        for segment_z in self.road_segments:
-            # Draw road surface with slight color variation for visual interest
-            color_variation = (segment_z % 40) / 40  # Creates a subtle pattern
-            road_color = Color(
-                int(40 + color_variation * 20),
-                int(40 + color_variation * 20),
-                int(40 + color_variation * 20),
-                255
-            )
-            
-            # Draw road surface
+        for z in self.road_segments:
             draw_cube(
-                (0.0, -0.5, segment_z - self.segment_length/2),
-                self.road_width, 0.5, self.segment_length,
-                road_color
+                (0.0, -0.5, z),
+                10.0, 1.0, self.segment_length,
+                DARKGRAY
             )
-            
-            # Draw side barriers with glowing effect
-            glow = abs(math.sin(get_time() * 2 + segment_z * 0.1)) * 0.5 + 0.5
-            barrier_color = Color(
-                int(0 + glow * 100),
-                int(100 + glow * 155),
-                int(200 + glow * 55),
-                255
-            )
-            
+            # Road markings
             draw_cube(
-                (self.road_width/2 + 0.5, 0.5, segment_z - self.segment_length/2),
-                1.0, 1.0, self.segment_length,
-                barrier_color
+                (0.0, 0.01, z),
+                0.5, 0.1, self.segment_length * 0.5,
+                YELLOW
             )
-            draw_cube(
-                (-self.road_width/2 - 0.5, 0.5, segment_z - self.segment_length/2),
-                1.0, 1.0, self.segment_length,
-                barrier_color
-            )
-        
-        # Draw space background with more stars and parallax effect
-        for i in range(300):  # More stars
-            depth_factor = (i % 3 + 1) * 0.5  # Creates 3 layers of stars
-            star_x = math.sin(i * 1.1) * 50 * depth_factor
-            star_y = math.cos(i * 0.9) * 30 * depth_factor
-            star_z = ((get_time() * 20 * depth_factor + i * 10) % 600) - 600 + ball_position.z
-            
-            # Star color varies with depth
-            star_brightness = int(255 * (1 - depth_factor * 0.3))
-            star_color = Color(star_brightness, star_brightness, star_brightness, 255)
-            
-            draw_cube(
-                (star_x, star_y, star_z),
-                0.2 * depth_factor, 0.2 * depth_factor, 0.2 * depth_factor,
-                star_color
-            )
-        
+            # Side barriers with glow
+            barrier_color = Color(41, 41, 41, 255)  # Dark gray
+            glow_size = 1.0 + abs(math.sin(get_time() * 2 + z * 0.1)) * 0.1
+            for x in [-5, 5]:
+                draw_cube(
+                    (x, 1.0, z),
+                    0.5 * glow_size, 2.0 * glow_size, self.segment_length,
+                    fade(barrier_color, 0.7)
+                )
+                draw_cube(
+                    (x, 1.0, z),
+                    0.3, 1.8, self.segment_length,
+                    barrier_color
+                )
+
         # Draw obstacles and power-ups
         for obstacle in self.obstacles:
             obstacle.draw()
         for power_up in self.power_ups:
             power_up.draw()
+            
+        # Draw particles
+        for particle in self.particles:
+            particle.draw()
 
 def create_levels():
     levels = []

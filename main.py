@@ -180,6 +180,99 @@ class Ball:
             self.trail_color
         )
 
+class Achievement:
+    def __init__(self, name, description, condition_fn):
+        self.name = name
+        self.description = description
+        self.condition_fn = condition_fn
+        self.unlocked = False
+        self.show_time = 0
+
+class GameManager:
+    def __init__(self, levels):
+        self.levels = levels
+        self.current_level = 0
+        self.current_level_data = levels[self.current_level]
+        self.state = GameState.PLAYING
+        self.ball_position = Vector3(0, 0, 0)
+        self.high_score = 0
+        
+        # Achievement system
+        self.achievements = [
+            Achievement(
+                "Speed Demon",
+                "Collect 3 speed boosts in a row",
+                lambda ball: ball.speed_boost_count >= 3
+            ),
+            Achievement(
+                "Combo Master",
+                "Reach a 5x combo multiplier",
+                lambda ball: self.current_level_data.combo_multiplier >= 5
+            ),
+            Achievement(
+                "Distance Runner",
+                "Travel 1000 meters",
+                lambda ball: abs(ball.position.z) >= 1000
+            ),
+            Achievement(
+                "Point Collector",
+                "Score over 10000 points",
+                lambda ball: ball.score >= 10000
+            )
+        ]
+
+    def update(self, ball, delta_time):
+        if self.state == GameState.PLAYING:
+            # Check collisions
+            for obstacle in self.current_level_data.obstacles:
+                if self.check_collision(ball, obstacle):
+                    if not ball.has_shield:
+                        self.state = GameState.GAME_OVER
+                        if ball.score > self.high_score:
+                            self.high_score = ball.score
+                    else:
+                        ball.has_shield = False  # Remove shield on hit
+                        self.current_level_data.add_particle_effect(ball.position, "collect")
+            
+            # Check achievements
+            for achievement in self.achievements:
+                if not achievement.unlocked and achievement.condition_fn(ball):
+                    achievement.unlocked = True
+                    achievement.show_time = 3.0  # Show for 3 seconds
+                    
+            # Update achievement timers
+            for achievement in self.achievements:
+                if achievement.show_time > 0:
+                    achievement.show_time -= delta_time
+
+    def check_collision(self, ball, obstacle):
+        # Improved collision detection for different obstacle types
+        if obstacle.spinning:
+            # For spinning obstacles, check distance to the center line
+            dx = ball.position.x - obstacle.position.x
+            dy = ball.position.y - obstacle.position.y
+            dz = ball.position.z - obstacle.position.z
+            
+            if abs(dz) < obstacle.size.z + ball.radius:
+                distance_to_center = math.sqrt(dx * dx + dy * dy)
+                return distance_to_center < obstacle.spin_radius + ball.radius
+        else:
+            # Box collision for regular obstacles
+            half_size = Vector3(
+                obstacle.size.x / 2,
+                obstacle.size.y / 2,
+                obstacle.size.z / 2
+            )
+            
+            return (
+                abs(ball.position.x - obstacle.position.x) < half_size.x + ball.radius and
+                abs(ball.position.y - obstacle.position.y) < half_size.y + ball.radius and
+                abs(ball.position.z - obstacle.position.z) < half_size.z + ball.radius
+            )
+
+    def draw_level(self):
+        self.current_level_data.draw(self.ball_position)
+
 def main():
     # Initialize window
     init_window(SCREEN_WIDTH, SCREEN_HEIGHT, "Endless Runner Ball Game")
@@ -235,21 +328,28 @@ def main():
                     if distance < collect_radius:
                         power_up.active = False
                         ball.apply_power_up(power_up.type)
+                        game_manager.current_level_data.add_particle_effect(power_up.position)
+                        game_manager.current_level_data.add_combo()
             
-            # Update camera to follow ball
+            # Update camera with smooth follow and effects
+            target_cam_x = ball.position.x * 0.3
             camera.position = Vector3(
-                ball.position.x * 0.3,
-                6.0 + math.sin(get_time()) * 0.2,
+                target_cam_x,
+                6.0 + math.sin(get_time() * 2) * 0.2,  # Gentle camera bob
                 ball.position.z + 10.0
             )
             camera.target = Vector3(
-                ball.position.x * 0.3,
+                target_cam_x,
                 1.0,
                 ball.position.z - 5.0
             )
             
-            # Update score based on distance and multiplier
-            ball.score = int(-ball.position.z * game_manager.current_level_data.score_multiplier)
+            # Update score with combo system
+            ball.score = int(
+                -ball.position.z * 
+                game_manager.current_level_data.score_multiplier * 
+                game_manager.current_level_data.combo_multiplier
+            )
             
         elif game_manager.state == GameState.GAME_OVER and is_key_pressed(KEY_R):
             reset_game()
@@ -275,12 +375,19 @@ def main():
             draw_text("Use Arrow Keys to Move, SPACE to Jump", 
                      SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT//2 + 30, 20, GRAY)
         else:
-            # Draw score and distance
+            # Draw HUD
             draw_text(f"Distance: {int(-ball.position.z)} m", 20, 20, 20, WHITE)
             draw_text(f"Score: {ball.score}", 20, 50, 20, GOLD)
             
+            # Draw combo multiplier
+            if game_manager.current_level_data.combo_multiplier > 1:
+                draw_text(
+                    f"Combo: x{game_manager.current_level_data.combo_multiplier:.1f}",
+                    20, 80, 20, PURPLE
+                )
+            
             # Draw active power-ups
-            y_offset = 80
+            y_offset = 110
             if ball.has_speed_boost:
                 draw_text("Speed Boost!", 20, y_offset, 20, GREEN)
                 y_offset += 30
@@ -290,11 +397,47 @@ def main():
             if ball.has_magnet:
                 draw_text("Magnet Active", 20, y_offset, 20, PURPLE)
             
+            # Draw achievement notifications
+            y_offset = 150
+            for achievement in game_manager.achievements:
+                if achievement.show_time > 0:
+                    draw_text(
+                        f"Achievement Unlocked: {achievement.name}",
+                        SCREEN_WIDTH//2 - 150,
+                        y_offset,
+                        20,
+                        GOLD
+                    )
+                    draw_text(
+                        achievement.description,
+                        SCREEN_WIDTH//2 - 120,
+                        y_offset + 25,
+                        16,
+                        LIGHTGRAY
+                    )
+                    y_offset += 60
+            
             if game_manager.state == GameState.GAME_OVER:
                 draw_text("Game Over! Press R to restart", 
                          SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2, 20, RED)
                 draw_text(f"Final Score: {ball.score}", 
                          SCREEN_WIDTH//2 - 70, SCREEN_HEIGHT//2 + 30, 20, GOLD)
+                
+                # Show unlocked achievements
+                y_offset = SCREEN_HEIGHT//2 + 70
+                draw_text("Achievements Unlocked:", 
+                         SCREEN_WIDTH//2 - 100, y_offset, 20, GOLD)
+                y_offset += 30
+                for achievement in game_manager.achievements:
+                    if achievement.unlocked:
+                        draw_text(
+                            f"- {achievement.name}",
+                            SCREEN_WIDTH//2 - 80,
+                            y_offset,
+                            16,
+                            WHITE if achievement.unlocked else GRAY
+                        )
+                        y_offset += 25
         
         end_drawing()
 
