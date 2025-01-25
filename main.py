@@ -36,6 +36,12 @@ class Ball:
             "magnet": 0
         }
         
+        # Achievement tracking
+        self.speed_boost_count = 0
+        self.consecutive_power_ups = 0
+        self.max_combo = 0
+        self.total_power_ups = 0
+        
         # Movement properties
         self.forward_speed = 20.0
         self.max_side_speed = 15.0
@@ -54,6 +60,7 @@ class Ball:
                 if self.power_up_timers[power_up] <= 0:
                     if power_up == "speed_boost":
                         self.has_speed_boost = False
+                        self.speed_boost_count = 0  # Reset count when speed boost expires
                     elif power_up == "shield":
                         self.has_shield = False
                     elif power_up == "magnet":
@@ -122,9 +129,13 @@ class Ball:
             self.trail_color = BLUE
 
     def apply_power_up(self, power_up_type):
+        self.total_power_ups += 1
+        self.consecutive_power_ups += 1
+        
         if power_up_type == "speed_boost":
             self.has_speed_boost = True
             self.power_up_timers["speed_boost"] = 5.0
+            self.speed_boost_count += 1
         elif power_up_type == "shield":
             self.has_shield = True
             self.power_up_timers["shield"] = 10.0
@@ -206,8 +217,8 @@ class GameManager:
             ),
             Achievement(
                 "Combo Master",
-                "Reach a 5x combo multiplier",
-                lambda ball: self.current_level_data.combo_multiplier >= 5
+                "Get a 3x combo multiplier",
+                lambda ball: self.current_level_data.combo_multiplier >= 3
             ),
             Achievement(
                 "Distance Runner",
@@ -215,9 +226,14 @@ class GameManager:
                 lambda ball: abs(ball.position.z) >= 1000
             ),
             Achievement(
-                "Point Collector",
-                "Score over 10000 points",
-                lambda ball: ball.score >= 10000
+                "Power Collector",
+                "Collect 20 power-ups in total",
+                lambda ball: ball.total_power_ups >= 20
+            ),
+            Achievement(
+                "Chain Master",
+                "Collect 5 power-ups in a row",
+                lambda ball: ball.consecutive_power_ups >= 5
             )
         ]
 
